@@ -1,0 +1,12 @@
+npm i -D hardhat
+npx hardhat
+npm i -D dotenv
+npm i -D @nomiclabs/hardhat-waffle
+npm i @eaglewalker/hardhat-cronoscan
+npx hardhat clean
+npx hardhat compile
+npx hardhat run scripts/deploy.js --network harmony
+Output was -
+Paypal with timestamp 1691522825 deployed 
+        to undefined at address 0xc70e894fB84cc2E3d7C97864ea9063C359D8F642
+npx hardhat verify 0xc70e894fB84cc2E3d7C97864ea9063C359D8F642 --network harmony
