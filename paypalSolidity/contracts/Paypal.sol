@@ -9,18 +9,22 @@ contract Paypal {
 	}
 
 	struct request {
-		address requestor;
+		address payeeAddress;
+		string payeeUserName;
 		uint256 amount;
+		uint256 requestTime;
 		string message;
-		string name;
+		address payerAddress;
 	}
 
-	struct sendReceive {
+	struct transaction {
 		string action;
 		uint256 amount;
 		string message;
-		address otherPartyAddress;
-		string otherPartyName;
+		address myAddress;
+		address yourAddress;
+		string yourUserName;
+		uint256 txnTime;
 	}
 
 	struct userName {
@@ -28,90 +32,89 @@ contract Paypal {
 		bool hasName;
 	}
 
-	mapping(address => userName) names;
-	mapping(address  => request[]) requests;
-	mapping(address  => sendReceive[]) history;
+	mapping(address => userName) address2UserNameHashMap;
+	mapping(address  => request[]) requestsHashMap;
+	mapping(address  => transaction[]) txnHistoryHashMap;
 
-	function addName(string memory _name) public {
-		userName storage newUserName = names[msg.sender];
+	function modifyUserName(string memory _name) public {
+		userName storage newUserName = address2UserNameHashMap[msg.sender];
 		newUserName.name = _name;
 		newUserName.hasName = true;
 	}
 
-	function createRequest(address user, uint256 _amount, string memory _message) public {
-		request memory newRequest;
-		newRequest.requestor = msg.sender;
-		newRequest.amount = _amount;
-		newRequest.message = _message;
-		if (names[msg.sender].hasName) {
-			newRequest.name = names[msg.sender].name;
+	function createRequest(address _user, uint256 _amount, string memory _message) public {
+		request memory newTxnRequest;
+		newTxnRequest.payeeAddress = msg.sender;
+		if (address2UserNameHashMap[msg.sender].hasName) {
+			newTxnRequest.payeeUserName = address2UserNameHashMap[msg.sender].name;
 		}
-		requests[user].push(newRequest);
+		newTxnRequest.amount = _amount;
+		newTxnRequest.requestTime = block.timestamp;
+		newTxnRequest.message = _message;
+		newTxnRequest.payerAddress = _user;
+
+		requestsHashMap[_user].push(newTxnRequest);
 	}
 
 	function payRequest(uint256 _request) public payable {
-		require(_request < requests[msg.sender].length, "No Such Request");
-		request[] storage myRequests = requests[msg.sender];
+		require(_request < requestsHashMap[msg.sender].length, "No Such Request");
+		request[] storage myRequests = requestsHashMap[msg.sender];
 		request storage payableRequest = myRequests[_request];
 		
-		uint256 toPay = payableRequest.amount * 1000000000000000000;
-		require(msg.value == (toPay), "Pay Correct Amount");
+		uint256 txnAmount = payableRequest.amount * 1000000000000000000;
+		require(msg.value == (txnAmount), "Pay Correct Amount");
 		
-		payable(payableRequest.requestor).transfer(msg.value);
+		payable(payableRequest.payeeAddress).transfer(msg.value);
 		
-		addHistory(msg.sender, payableRequest.requestor, payableRequest.amount, payableRequest.message);
+		addHistory(msg.sender, payableRequest.payeeAddress, payableRequest.amount, payableRequest.message);
 		
-		myRequests[_request] = myRequests[myRequests.length-1];
+		myRequests[_request] = myRequests[myRequests.length - 1];
 		myRequests.pop();
 	}
 
-	function addHistory(address sender, address receiver, 
+	function addHistory(address payerAddress, address payeeAddress, 
 						uint256 _amount, string memory _message) private {
-		sendReceive memory newSend;
-		newSend.action = "Send";
-		newSend.amount = _amount;
-		newSend.message = _message;
-		newSend.otherPartyAddress = receiver;
-		if (names[receiver].hasName) {
-			newSend.otherPartyName = names[receiver].name;
+		transaction memory debitTxn;
+		debitTxn.action = "DEBIT";
+		debitTxn.amount = _amount;
+		debitTxn.message = _message;
+		debitTxn.myAddress = payerAddress;
+		debitTxn.yourAddress = payeeAddress;
+		if (address2UserNameHashMap[payeeAddress].hasName) {
+			debitTxn.yourUserName = address2UserNameHashMap[payeeAddress].name;
 		}
-		history[sender].push(newSend);
+		debitTxn.txnTime = block.timestamp;
+		txnHistoryHashMap[payerAddress].push(debitTxn);
 		
-		sendReceive memory newReceive;
-		newReceive.action = "Receive";
-		newReceive.amount = _amount;
-		newReceive.message = _message;
-		newReceive.otherPartyAddress = sender;
-		if (names[sender].hasName) {
-			newReceive.otherPartyName = names[sender].name;
+		transaction memory creditTxn;
+		creditTxn.action = "CREDIT";
+		creditTxn.amount = _amount;
+		creditTxn.message = _message;
+		creditTxn.myAddress = payeeAddress;
+		creditTxn.yourAddress = payerAddress;
+		if (address2UserNameHashMap[payerAddress].hasName) {
+			creditTxn.yourUserName = address2UserNameHashMap[payerAddress].name;
 		}
-		history[receiver].push(newReceive);
+		creditTxn.txnTime = block.timestamp;
+		txnHistoryHashMap[payeeAddress].push(creditTxn);
 	}
 
-	function getMyRequests(address _user) public view returns(
-		address[] memory, uint256[] memory, string[] memory, string[] memory) {
-		
-		address[] memory addrs = new address[](requests[_user].length);
-		uint256[] memory amnt = new uint256[](requests[_user].length);
-		string[] memory msge = new string[](requests[_user].length);
-		string[] memory nme = new string[](requests[_user].length);
-		
-		for (uint i = 0; i < requests[_user].length; i++) {
-			request storage myRequests = requests[_user][i];
-			addrs[i] = myRequests.requestor;
-			amnt[i] = myRequests.amount;
-			msge[i] = myRequests.message;
-			nme[i] = myRequests.name;
-		}
-		
-		return (addrs, amnt, msge, nme);
+	function rejectRequest(uint256 _request) public {
+		require(_request < requestsHashMap[msg.sender].length, "No Such Request");
+		request[] storage myRequests = requestsHashMap[msg.sender];
+		myRequests[_request] = myRequests[myRequests.length - 1];
+		myRequests.pop();
 	}
 
-	function getMyHistory(address _user) public view returns(sendReceive[] memory) {
-		return history[_user];
-	}
-	
 	function getMyName(address _user) public view returns(userName memory) {
-		return names[_user];
+		return address2UserNameHashMap[_user];
+	}
+
+	function getMyRequests(address _user) public view returns (request[] memory) {
+   		return requestsHashMap[_user];
+	}
+
+	function getMyTxnHistory(address _user) public view returns(transaction[] memory) {
+		return txnHistoryHashMap[_user];
 	}
 }
